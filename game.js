@@ -31,6 +31,12 @@ const BEACH_ROWS = GRID_H - OCEAN_ROWS;
 const TILE_W = 52;
 const TILE_H = 26;
 const TILE_DEPTH = 10;
+const HUD_HEIGHT = 88;
+const VIEW_PAD_X = 16;
+const VIEW_PAD_BOTTOM = 12;
+const PALM_TOP_EXTRA = 56;
+
+let isoScale = 1;
 
 const WAVE_CYCLE_SEC = 7;
 const WAVE_BEACH_COVER = 0.8;
@@ -90,17 +96,64 @@ const PLAYER_PALETTE = {
 };
 
 // ── isometric projection ──────────────────────────────────────────────────────
+function scaledTileW() {
+  return TILE_W * isoScale;
+}
+
+function scaledTileH() {
+  return TILE_H * isoScale;
+}
+
+function scaledTileDepth() {
+  return TILE_DEPTH * isoScale;
+}
+
+function getGridBounds() {
+  const tw = TILE_W * 0.5;
+  const th = TILE_H * 0.5;
+  const minX = -(GRID_H - 1) * tw;
+  const maxX = (GRID_W - 1) * tw;
+  const minY = 0;
+  const maxY = (GRID_W - 1 + GRID_H - 1) * th + PALM_TOP_EXTRA;
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+    centerX: (minX + maxX) * 0.5,
+    centerY: (minY + maxY) * 0.5,
+  };
+}
+
+function updateViewLayout() {
+  const w = mainCanvasSize.x;
+  const h = mainCanvasSize.y;
+  const bounds = getGridBounds();
+  const availW = w - VIEW_PAD_X * 2;
+  const availH = h - HUD_HEIGHT - VIEW_PAD_BOTTOM;
+  isoScale = Math.min(1, availW / bounds.width, availH / bounds.height);
+}
+
 function getOrigin() {
   const w = mainCanvasSize.x;
   const h = mainCanvasSize.y;
-  return { x: w * 0.5, y: h * 0.22 };
+  const bounds = getGridBounds();
+  const availH = h - HUD_HEIGHT;
+  return {
+    x: w * 0.5 - bounds.centerX * isoScale,
+    y: HUD_HEIGHT + availH * 0.5 - bounds.centerY * isoScale,
+  };
 }
 
 function isoToScreen(ix, iy, iz = 0) {
   const { x: ox, y: oy } = getOrigin();
+  const tw = TILE_W * 0.5 * isoScale;
+  const th = TILE_H * 0.5 * isoScale;
   return {
-    x: ox + (ix - iy) * (TILE_W * 0.5),
-    y: oy + (ix + iy) * (TILE_H * 0.5) - iz * TILE_DEPTH,
+    x: ox + (ix - iy) * tw,
+    y: oy + (ix + iy) * th - iz * scaledTileDepth(),
   };
 }
 
@@ -168,7 +221,7 @@ function playerGroundScreenPos() {
   const kind = tileAt(Math.round(ix), Math.round(iy));
   const elev = kind === "sand" ? 0.15 * Math.sin(ix * 1.3 + iy * 0.9) : 0.08;
   const base = isoToScreen(ix, iy, elev);
-  return { x: base.x, y: base.y - 6 };
+  return { x: base.x, y: base.y - 6 * isoScale };
 }
 
 const ISO_MOVE_DIRS = [
@@ -197,7 +250,7 @@ function getTapGridDirection() {
   const feet = playerGroundScreenPos();
   const vx = mousePosScreen.x - feet.x;
   const vy = mousePosScreen.y - feet.y;
-  if (Math.hypot(vx, vy) < 28) return null;
+  if (Math.hypot(vx, vy) < 28 * isoScale) return null;
 
   return gridDirectionFromScreenDelta(vx, vy);
 }
@@ -261,12 +314,12 @@ function drawPlayer() {
   }
 
   const elev = kind === "sand" ? 0.15 * Math.sin(ix * 1.3 + iy * 0.9) : 0.08;
-  const bob = player.moving ? Math.sin(time * 14) * 1.5 : Math.sin(time * 3) * 0.6;
+  const bob = player.moving ? Math.sin(time * 14) * 1.5 * isoScale : Math.sin(time * 3) * 0.6 * isoScale;
   const base = isoToScreen(ix, iy, elev);
   const cx = base.x;
-  const cy = base.y - 22 + bob;
+  const cy = base.y - 22 * isoScale + bob;
   const ctx = mainContext;
-  const px = 2.2;
+  const px = 2.2 * isoScale;
   const rows = PLAYER_SPRITE.length;
   const cols = PLAYER_SPRITE[0].length;
   const w = cols * px;
@@ -394,15 +447,15 @@ function drawDiamond(cx, cy, w, h, fill, stroke) {
 
 function drawBlockTop(ix, iy, iz, color, stroke) {
   const { x, y } = isoToScreen(ix, iy, iz);
-  drawDiamond(x, y, TILE_W, TILE_H, color, stroke);
+  drawDiamond(x, y, scaledTileW(), scaledTileH(), color, stroke);
 }
 
 function drawBlockSides(ix, iy, iz, topColor, leftColor, rightColor) {
   const top = isoToScreen(ix, iy, iz);
   const bot = isoToScreen(ix, iy, iz - 1);
   const ctx = mainContext;
-  const hw = TILE_W * 0.5;
-  const hh = TILE_H * 0.5;
+  const hw = scaledTileW() * 0.5;
+  const hh = scaledTileH() * 0.5;
 
   ctx.save();
   ctx.beginPath();
@@ -424,7 +477,7 @@ function drawBlockSides(ix, iy, iz, topColor, leftColor, rightColor) {
   ctx.fill();
   ctx.restore();
 
-  drawDiamond(top.x, top.y, TILE_W, TILE_H, topColor, null);
+  drawDiamond(top.x, top.y, scaledTileW(), scaledTileH(), topColor, null);
 }
 
 // ── tile colors ───────────────────────────────────────────────────────────────
@@ -480,13 +533,14 @@ function drawPalm(ix, iy) {
   const top = isoToScreen(ix, iy, groundZ + trunkH);
   const ctx = mainContext;
 
+  const s = isoScale;
   ctx.save();
   ctx.strokeStyle = "#6b4423";
-  ctx.lineWidth = 5;
+  ctx.lineWidth = 5 * s;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(base.x, base.y);
-  ctx.lineTo(top.x, top.y - 8);
+  ctx.lineTo(top.x, top.y - 8 * s);
   ctx.stroke();
 
   const fronds = [
@@ -499,7 +553,15 @@ function drawPalm(ix, iy) {
   ctx.fillStyle = "#2d8a3e";
   for (const [dx, dy] of fronds) {
     ctx.beginPath();
-    ctx.ellipse(top.x + dx, top.y + dy, 16, 7, Math.atan2(dy, dx), 0, Math.PI * 2);
+    ctx.ellipse(
+      top.x + dx * s,
+      top.y + dy * s,
+      16 * s,
+      7 * s,
+      Math.atan2(dy, dx),
+      0,
+      Math.PI * 2,
+    );
     ctx.fill();
   }
   ctx.restore();
@@ -514,16 +576,17 @@ function drawCrab(ix, iy, facing, phase) {
   const kind = tileAt(ix, iy);
   if (!isExposedBeach(kind)) return;
 
-  const wiggle = Math.sin(time * 5 + phase) * 2;
+  const s = isoScale;
+  const wiggle = Math.sin(time * 5 + phase) * 2 * s;
   const base = isoToScreen(ix, iy, kind === "sand" ? 0.15 : 0.08);
   const cx = base.x + wiggle;
-  const cy = base.y - 6;
+  const cy = base.y - 6 * s;
   const ctx = mainContext;
   const sc = facing;
 
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.scale(sc, 1);
+  ctx.scale(sc * s, s);
 
   ctx.fillStyle = "#c44a2a";
   ctx.beginPath();
@@ -639,31 +702,38 @@ function drawScene() {
   for (const [ix, iy] of PALMS) drawPalm(ix, iy);
 }
 
+function hudSize(base) {
+  return Math.max(11, Math.round(base * Math.min(1, mainCanvasSize.x / 720)));
+}
+
 function drawHUD() {
   const w = mainCanvasSize.x;
   const reach = Math.round((waveCoverage01() / WAVE_BEACH_COVER) * 100);
   const amp = waveAmplitude.toFixed(2);
+  const y0 = HUD_HEIGHT * 0.32;
+  const y1 = HUD_HEIGHT * 0.58;
+  const y2 = HUD_HEIGHT * 0.84;
 
   drawTextScreen(
     `Crabes : ${caughtCrabs}`,
-    vec2(16, 28),
-    24,
+    vec2(16, y0),
+    hudSize(24),
     rgb(1, 0.95, 0.85),
     0,
     rgb(0, 0, 0),
     "left",
   );
-  drawTextScreen("La chasse aux crabes", vec2(w * 0.5, 28), 28, rgb(1, 1, 1));
+  drawTextScreen("La chasse aux crabes", vec2(w * 0.5, y0), hudSize(28), rgb(1, 1, 1));
   drawTextScreen(
     `Wave: ${reach}% of max (80% beach)  ·  amplitude: ${amp}`,
-    vec2(w * 0.5, 54),
-    18,
+    vec2(w * 0.5, y1),
+    hudSize(18),
     rgb(0.92, 0.96, 1),
   );
   drawTextScreen(
     "Flèches ou toucher l'écran : déplacer le garçon",
-    vec2(w * 0.5, 78),
-    16,
+    vec2(w * 0.5, y2),
+    hudSize(16),
     rgb(0.92, 0.96, 1),
   );
 }
@@ -730,6 +800,7 @@ function gameUpdate() {
 }
 
 function gameRenderPost() {
+  updateViewLayout();
   drawScene();
   drawHUD();
   drawWinBanner();
