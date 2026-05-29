@@ -12,8 +12,9 @@ import {
   time,
   keyWasPressed,
   mouseWasPressed,
+  mousePosScreen,
   timeDelta,
-} from "./node_modules/littlejsengine/dist/littlejs.esm.js";
+} from "./vendor/littlejs.esm.js";
 import {
   initBackgroundMusic,
   tryStartBackgroundMusic,
@@ -40,7 +41,7 @@ let lastCycleIndex = -1;
 
 const CRABS_PER_WAVE_MIN = 4;
 const CRABS_PER_WAVE_MAX = 5;
-const WIN_CRAB_COUNT = 30;
+const WIN_CRAB_COUNT = 10;
 const crabs = new Map();
 let crabsSpawnBudget = 0;
 let prevTileKinds = null;
@@ -161,6 +162,57 @@ function canPlayerWalk(ix, iy) {
   return kind === "sand" || kind === "wet";
 }
 
+function playerGroundScreenPos() {
+  const ix = player.x;
+  const iy = player.y;
+  const kind = tileAt(Math.round(ix), Math.round(iy));
+  const elev = kind === "sand" ? 0.15 * Math.sin(ix * 1.3 + iy * 0.9) : 0.08;
+  const base = isoToScreen(ix, iy, elev);
+  return { x: base.x, y: base.y - 6 };
+}
+
+const ISO_MOVE_DIRS = [
+  { dx: -1, dy: -1, sx: 0, sy: -1 },
+  { dx: 1, dy: 1, sx: 0, sy: 1 },
+  { dx: -1, dy: 1, sx: -1, sy: 0 },
+  { dx: 1, dy: -1, sx: 1, sy: 0 },
+];
+
+function gridDirectionFromScreenDelta(vx, vy) {
+  let best = ISO_MOVE_DIRS[0];
+  let bestDot = -Infinity;
+  for (const d of ISO_MOVE_DIRS) {
+    const dot = vx * d.sx + vy * d.sy;
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = d;
+    }
+  }
+  return best;
+}
+
+function getTapGridDirection() {
+  if (!mouseWasPressed(0)) return null;
+
+  const feet = playerGroundScreenPos();
+  const vx = mousePosScreen.x - feet.x;
+  const vy = mousePosScreen.y - feet.y;
+  if (Math.hypot(vx, vy) < 28) return null;
+
+  return gridDirectionFromScreenDelta(vx, vy);
+}
+
+function tryMovePlayer(dx, dy) {
+  if (dx === 0 && dy === 0) return;
+  const tx = Math.round(player.x) + dx;
+  const ty = Math.round(player.y) + dy;
+  if (canPlayerWalk(tx, ty)) {
+    player.ix = tx;
+    player.iy = ty;
+    player.facing = dx < 0 || (dx === 0 && dy > 0) ? -1 : 1;
+  }
+}
+
 function updatePlayer() {
   let dx = 0;
   let dy = 0;
@@ -176,17 +228,15 @@ function updatePlayer() {
   } else if (keyWasPressed("ArrowRight")) {
     dx = 1;
     dy = -1;
-  }
-
-  if (dx !== 0 || dy !== 0) {
-    const tx = Math.round(player.x) + dx;
-    const ty = Math.round(player.y) + dy;
-    if (canPlayerWalk(tx, ty)) {
-      player.ix = tx;
-      player.iy = ty;
-      player.facing = dx < 0 || (dx === 0 && dy > 0) ? -1 : 1;
+  } else {
+    const tapDir = getTapGridDirection();
+    if (tapDir) {
+      dx = tapDir.dx;
+      dy = tapDir.dy;
     }
   }
+
+  tryMovePlayer(dx, dy);
 
   const dist = Math.hypot(player.ix - player.x, player.iy - player.y);
   if (dist > 0.02) {
@@ -611,7 +661,7 @@ function drawHUD() {
     rgb(0.92, 0.96, 1),
   );
   drawTextScreen(
-    "Flèches : déplacer le garçon sur la plage",
+    "Flèches ou toucher l'écran : déplacer le garçon",
     vec2(w * 0.5, 78),
     16,
     rgb(0.92, 0.96, 1),

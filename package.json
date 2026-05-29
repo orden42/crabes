@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "vendor": "node scripts/sync-vendor.mjs",
+    "postinstall": "node scripts/sync-vendor.mjs",
     "start": "npx http-server . -p 8080 -c-1",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

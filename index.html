@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Isometric Beach</title>
   <style>
     html, body {
@@ -14,13 +14,15 @@
     #game {
       width: 100vw;
       height: 100vh;
+      height: 100dvh;
       display: block;
+      touch-action: none;
     }
   </style>
 </head>
 <body>
   <div id="game"></div>
-  <script src="./node_modules/midi.js/lib/midi.min.js"></script>
+  <script src="./vendor/midi.min.js"></script>
   <script type="module" src="./game.js"></script>
 </body>
 </html>
