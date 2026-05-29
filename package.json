@@ -1,0 +1,17 @@
+{
+  "name": "littlejsdemo",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx http-server . -p 8080 -c-1",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "littlejsengine": "^1.18.15",
+    "midi.js": "^0.3.1"
+  }
+}
