@@ -40,7 +40,7 @@ function initWaveAmbience() {
 
 function initTingSound() {
   tingAudio = new Audio(TING_URL);
-  tingAudio.volume = 0.7;
+  tingAudio.volume = 0.35;
   tingAudio.preload = "auto";
 }
 
