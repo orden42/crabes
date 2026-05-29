@@ -10,6 +10,7 @@ import {
   mainCanvasSize,
   mainContext,
   time,
+  timeReal,
   keyWasPressed,
   mouseWasPressed,
   mousePosScreen,
@@ -38,8 +39,30 @@ const HUD_HEIGHT = 0;
 const VIEW_PAD_X = 16;
 const VIEW_PAD_BOTTOM = 32;
 const PALM_TOP_EXTRA = 28;
+const PHONE_MAX_WIDTH = 520;
+
+function isPhoneLayout() {
+  const w = mainCanvasSize.x;
+  const h = mainCanvasSize.y;
+  return Math.min(w, h) < PHONE_MAX_WIDTH;
+}
+
+function viewPadX() {
+  return isPhoneLayout() ? 2 : VIEW_PAD_X;
+}
+
+function viewPadBottom() {
+  return isPhoneLayout() ? 8 : VIEW_PAD_BOTTOM;
+}
+
+function layoutPalmTopExtra() {
+  return isPhoneLayout() ? 10 : PALM_TOP_EXTRA;
+}
 
 let isoScale = 1;
+
+const SPLASH_DURATION = 1.5;
+let splashUntil = 0;
 
 const WAVE_CYCLE_SEC = 7;
 const WAVE_BEACH_COVER = 0.8;
@@ -126,12 +149,19 @@ function tileDrawDepth(ix, iy) {
 }
 
 function getGridBounds() {
-  const corners = [
-    [0, 0],
-    [GRID_W - 1, 0],
-    [0, GRID_H - 1],
-    [GRID_W - 1, GRID_H - 1],
-  ];
+  const corners = isPhoneLayout()
+    ? [
+        [0, OCEAN_ROWS],
+        [GRID_W - 1, OCEAN_ROWS],
+        [0, GRID_H - 1],
+        [GRID_W - 1, GRID_H - 1],
+      ]
+    : [
+        [0, 0],
+        [GRID_W - 1, 0],
+        [0, GRID_H - 1],
+        [GRID_W - 1, GRID_H - 1],
+      ];
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
@@ -144,13 +174,15 @@ function getGridBounds() {
     maxY = Math.max(maxY, p.y);
   }
   const half = TILE_W * 0.5;
+  const edge = isPhoneLayout() ? half * 0.25 : half;
+  const palmExtra = layoutPalmTopExtra();
   return {
-    minX: minX - half,
-    maxX: maxX + half,
-    minY: minY - half - PALM_TOP_EXTRA,
+    minX: minX - edge,
+    maxX: maxX + edge,
+    minY: minY - half - palmExtra,
     maxY: maxY + half,
-    width: maxX - minX + TILE_W,
-    height: maxY - minY + TILE_H + PALM_TOP_EXTRA,
+    width: maxX - minX + edge * 2,
+    height: maxY - minY + TILE_H + palmExtra,
     centerX: (minX + maxX) * 0.5,
     centerY: (minY + maxY) * 0.5,
   };
@@ -160,8 +192,10 @@ function updateViewLayout() {
   const w = mainCanvasSize.x;
   const h = mainCanvasSize.y;
   const bounds = getGridBounds();
-  const availW = w - VIEW_PAD_X * 2;
-  const availH = h - HUD_HEIGHT - VIEW_PAD_BOTTOM;
+  const padX = viewPadX();
+  const padBottom = viewPadBottom();
+  const availW = w - padX * 2;
+  const availH = h - HUD_HEIGHT - padBottom;
   isoScale = Math.min(1, availW / bounds.width, availH / bounds.height);
 }
 
@@ -169,10 +203,15 @@ function getOrigin() {
   const w = mainCanvasSize.x;
   const h = mainCanvasSize.y;
   const bounds = getGridBounds();
-  const availH = h - HUD_HEIGHT;
+  const padBottom = viewPadBottom();
+  const availH = h - HUD_HEIGHT - padBottom;
+  const half = scaledTileH() * 0.5;
+  const y = isPhoneLayout()
+    ? HUD_HEIGHT + availH - bounds.maxY * isoScale - half
+    : HUD_HEIGHT + availH * 0.5 - bounds.centerY * isoScale;
   return {
     x: w * 0.5 - bounds.centerX * isoScale,
-    y: HUD_HEIGHT + availH * 0.5 - bounds.centerY * isoScale,
+    y,
   };
 }
 
@@ -696,17 +735,52 @@ function hudSize(base) {
   return Math.max(11, Math.round(base * Math.min(1, mainCanvasSize.x / 720)));
 }
 
-function drawTitleOnOcean() {
-  const oceanIx = (GRID_W - 1) * 0.5;
-  const oceanIy = (OCEAN_ROWS - 1) * 0.5;
-  const pos = isoToScreen(oceanIx, oceanIy, 0);
+function isSplashActive() {
+  return timeReal < splashUntil;
+}
+
+function drawSplash() {
+  if (!isSplashActive()) return;
+
+  const w = mainCanvasSize.x;
+  const h = mainCanvasSize.y;
+  const ctx = mainContext;
+  const remaining = splashUntil - timeReal;
+  const alpha = remaining < 0.2 ? remaining / 0.2 : 1;
+
+  ctx.save();
+  ctx.fillStyle = `rgba(12, 55, 95, ${0.94 * alpha})`;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+
+  const textColor = rgb(1, 1, 1, alpha);
+  const outline = rgb(0.05, 0.15, 0.35, alpha);
+
   drawTextScreen(
-    "Chasse aux crabes",
-    vec2(pos.x, pos.y),
-    hudSize(30),
-    rgb(1, 1, 1),
+    "La chasse aux crabes",
+    vec2(w * 0.5, h * 0.42),
+    hudSize(34),
+    textColor,
     0,
-    rgb(0.05, 0.2, 0.45),
+    outline,
+    "center",
+  );
+  drawTextScreen(
+    "par Michel Wargnier",
+    vec2(w * 0.5, h * 0.54),
+    hudSize(22),
+    textColor,
+    0,
+    outline,
+    "center",
+  );
+  drawTextScreen(
+    "2026",
+    vec2(w * 0.5, h * 0.64),
+    hudSize(20),
+    rgb(0.85, 0.95, 1, alpha),
+    0,
+    outline,
     "center",
   );
 }
@@ -745,13 +819,14 @@ function drawCrabCounterOnGrass() {
 function drawHUD() {
   const w = mainCanvasSize.x;
   const h = mainCanvasSize.y;
+  const padBottom = viewPadBottom();
+  const phone = isPhoneLayout();
 
-  drawTitleOnOcean();
   drawCrabCounterOnGrass();
   drawTextScreen(
-    "Flèches / toucher : haut bas gauche droite",
-    vec2(w * 0.5, h - VIEW_PAD_BOTTOM * 0.55),
-    hudSize(15),
+    phone ? "Toucher : direction" : "Flèches / toucher : haut bas gauche droite",
+    vec2(w * 0.5, h - padBottom * 0.55),
+    hudSize(phone ? 13 : 15),
     rgb(0.92, 0.96, 1),
     0,
     rgb(0.1, 0.15, 0.2),
@@ -801,6 +876,7 @@ function gameInit() {
   player.facing = 1;
   player.moving = false;
   initBackgroundMusic();
+  splashUntil = timeReal + SPLASH_DURATION;
 }
 
 function gameUpdate() {
@@ -813,6 +889,8 @@ function gameUpdate() {
   ) {
     tryStartBackgroundMusic();
   }
+  if (isSplashActive()) return;
+
   updateWave();
   updateCrabs();
   updatePlayer();
@@ -823,8 +901,11 @@ function gameUpdate() {
 function gameRenderPost() {
   updateViewLayout();
   drawScene();
-  drawHUD();
-  drawWinBanner();
+  if (!isSplashActive()) {
+    drawHUD();
+    drawWinBanner();
+  }
+  drawSplash();
 }
 
 engineInit(gameInit, gameUpdate, () => {}, () => {}, gameRenderPost);
