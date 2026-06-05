@@ -24,6 +24,100 @@ import {
   playWinMusic,
 } from "./music.js";
 
+function generateRockClusters({
+  gridW,
+  gridH,
+  oceanRows,
+  greenZoneIx,
+  clusterCount = 4,
+  minClusterSize = 3,
+  maxClusterSize = 5,
+  beachMarginTop = 2,
+  beachMarginBottom = 3,
+  clearRadius = 2,
+  minClusterSpacing = 3,
+}) {
+  const beachMinY = oceanRows + beachMarginTop;
+  const beachMaxY = gridH - beachMarginBottom - 1;
+  const clearCenterY = gridH - beachMarginBottom - 1;
+  const occupied = new Set();
+  const result = [];
+
+  function key(ix, iy) {
+    return `${ix},${iy}`;
+  }
+
+  function isClearZone(ix, iy) {
+    const dx = ix - greenZoneIx;
+    const dy = iy - clearCenterY;
+    return Math.hypot(dx, dy) <= clearRadius + 0.5;
+  }
+
+  function canPlace(ix, iy) {
+    if (ix < 1 || ix >= gridW - 1 || iy < beachMinY || iy > beachMaxY) return false;
+    if (isClearZone(ix, iy)) return false;
+    return !occupied.has(key(ix, iy));
+  }
+
+  function farEnoughFromClusters(ix, iy) {
+    for (const [rx, ry] of result) {
+      if (Math.abs(ix - rx) + Math.abs(iy - ry) < minClusterSpacing) return false;
+    }
+    return true;
+  }
+
+  function pickClusterStart() {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const ix = 1 + Math.floor(Math.random() * (gridW - 2));
+      const iy = beachMinY + Math.floor(Math.random() * (beachMaxY - beachMinY + 1));
+      if (canPlace(ix, iy) && farEnoughFromClusters(ix, iy)) {
+        return [ix, iy];
+      }
+    }
+    return null;
+  }
+
+  for (let clusterIndex = 0; clusterIndex < clusterCount; clusterIndex++) {
+    const start = pickClusterStart();
+    if (!start) continue;
+
+    const cluster = [start];
+    occupied.add(key(start[0], start[1]));
+
+    const targetSize =
+      minClusterSize +
+      Math.floor(Math.random() * (maxClusterSize - minClusterSize + 1));
+
+    while (cluster.length < targetSize) {
+      const [cx, cy] = cluster[Math.floor(Math.random() * cluster.length)];
+      const dirs = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ].sort(() => Math.random() - 0.5);
+
+      let added = false;
+      for (const [dx, dy] of dirs) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (!canPlace(nx, ny)) continue;
+        cluster.push([nx, ny]);
+        occupied.add(key(nx, ny));
+        added = true;
+        break;
+      }
+      if (!added) break;
+    }
+
+    for (const [ix, iy] of cluster) {
+      result.push([ix, iy, clusterIndex]);
+    }
+  }
+
+  return result;
+}
+
 export function startLevel(config = {}) {
   const {
     winCrabCount = 10,
@@ -35,12 +129,31 @@ export function startLevel(config = {}) {
     crabsPerWaveMax = 5,
     levelLabel = "",
     creatureType = "crab",
+    rocks: explicitRocks = [],
+    rockObstacles = null,
+    rockCreaturePenalty = 0,
+    theme = "beach",
+    freezeCycle = null,
   } = config;
+
+  const isIceTheme = theme === "ice";
 
   const GRID_W = 14;
   const GRID_H = 22;
   const OCEAN_ROWS = 4;
   const BEACH_ROWS = GRID_H - OCEAN_ROWS;
+  const GREEN_ZONE_IX = 7;
+
+  const rocks = rockObstacles
+    ? generateRockClusters({
+        gridW: GRID_W,
+        gridH: GRID_H,
+        oceanRows: OCEAN_ROWS,
+        greenZoneIx: GREEN_ZONE_IX,
+        ...rockObstacles,
+      })
+    : explicitRocks;
+  const rockSet = new Set(rocks.map(([ix, iy]) => `${ix},${iy}`));
 
   const TILE_W = 40;
   const TILE_H = 40;
@@ -85,9 +198,13 @@ export function startLevel(config = {}) {
   let caughtCrabs = 0;
   let levelWon = false;
   let levelWonAt = 0;
+  let playerLastTileKey = null;
+  let freezePhaseStart = 0;
+  let isFrozen = false;
+  let frozenAnimTime = 0;
+  let wasFrozen = false;
 
   const PLAYER_SPEED = 4.5;
-  const GREEN_ZONE_IX = 7;
   const GREEN_ZONE_IY = GRID_H - 2;
   const player = {
     ix: GREEN_ZONE_IX,
@@ -229,6 +346,27 @@ export function startLevel(config = {}) {
     };
   }
 
+  function animTime() {
+    return isFrozen ? frozenAnimTime : time;
+  }
+
+  function updateFreezeCycle() {
+    if (!freezeCycle) {
+      isFrozen = false;
+      wasFrozen = false;
+      return;
+    }
+
+    const cycleLen = freezeCycle.activeSec + freezeCycle.frozenSec;
+    const inCycle = (timeReal - freezePhaseStart) % cycleLen;
+    isFrozen = inCycle >= freezeCycle.activeSec;
+
+    if (isFrozen && !wasFrozen) {
+      frozenAnimTime = time;
+    }
+    wasFrozen = isFrozen;
+  }
+
   function updateWave() {
     const cycle = (time * (Math.PI * 2)) / waveCycleSec;
     wavePhase = cycle;
@@ -268,6 +406,10 @@ export function startLevel(config = {}) {
     return `${ix},${iy}`;
   }
 
+  function isRock(ix, iy) {
+    return rockSet.has(tileKey(ix, iy));
+  }
+
   function isSubmerged(kind) {
     return kind === "water" || kind === "foam" || kind === "ocean";
   }
@@ -276,8 +418,22 @@ export function startLevel(config = {}) {
     return kind === "wet" || kind === "sand";
   }
 
+  /** Higher near the shoreline, lower toward the top of the beach. */
+  function creatureSpawnChance(iy) {
+    const beachTop = GRID_H - 3;
+    const beachBottom = OCEAN_ROWS;
+    const span = beachTop - beachBottom;
+    if (span <= 0) return 0.14;
+
+    const nearWater = Math.max(0, Math.min(1, (beachTop - iy) / span));
+    const minChance = 0.05;
+    const maxChance = 0.32;
+    return minChance + nearWater * (maxChance - minChance);
+  }
+
   function canPlayerWalk(ix, iy) {
     if (ix < 0 || iy < 0 || ix >= GRID_W || iy >= GRID_H) return false;
+    if (isRock(ix, iy)) return rockCreaturePenalty > 0;
     const kind = tileAt(ix, iy);
     return kind === "sand" || kind === "wet";
   }
@@ -386,7 +542,7 @@ export function startLevel(config = {}) {
     }
 
     const elev = kind === "sand" ? 0.15 * Math.sin(ix * 1.3 + iy * 0.9) : 0.08;
-    const bob = player.moving ? Math.sin(time * 14) * 1.5 * isoScale : Math.sin(time * 3) * 0.6 * isoScale;
+    const bob = player.moving ? Math.sin(animTime() * 14) * 1.5 * isoScale : Math.sin(animTime() * 3) * 0.6 * isoScale;
     const base = isoToScreen(ix, iy, elev);
     const cx = base.x;
     const cy = base.y - 8 * isoScale + bob;
@@ -439,6 +595,32 @@ export function startLevel(config = {}) {
     player.x = GREEN_ZONE_IX;
     player.y = GREEN_ZONE_IY;
     player.moving = false;
+    playerLastTileKey = tileKey(player.ix, player.iy);
+  }
+
+  function checkRockPenalty() {
+    if (rockCreaturePenalty <= 0 || player.moving) return;
+
+    const ix = player.ix;
+    const iy = player.iy;
+    const key = tileKey(ix, iy);
+
+    if (!isRock(ix, iy)) {
+      playerLastTileKey = key;
+      return;
+    }
+
+    if (key === playerLastTileKey || caughtCrabs <= 0) return;
+
+    playerLastTileKey = key;
+    caughtCrabs = Math.floor(caughtCrabs * (1 - rockCreaturePenalty));
+
+    if (caughtCrabs < winCrabCount) {
+      levelWon = false;
+      levelWonAt = 0;
+    }
+
+    playGameOverSound();
   }
 
   function checkPlayerInWater() {
@@ -484,10 +666,11 @@ export function startLevel(config = {}) {
 
         if (
           !crabs.has(key) &&
+          !isRock(ix, iy) &&
           crabsSpawnBudget > 0 &&
           isSubmerged(prev) &&
           isExposedBeach(curr) &&
-          Math.random() < 0.14
+          Math.random() < creatureSpawnChance(iy)
         ) {
           crabs.set(key, {
             ix,
@@ -529,6 +712,19 @@ export function startLevel(config = {}) {
     grass: ["#5cb85c", "#4da84d", "#3d983d"],
   };
 
+  const ICE_COLORS = {
+    ocean: ["#1a4a6a", "#123a55", "#0c2a40"],
+    water: ["#2a6898", "#1f5580", "#164368"],
+    foam: ["#a8d8f0", "#8ec8e8", "#78b8dc"],
+    wet: ["#b8d4e8", "#a0c4dc", "#88b4d0"],
+    sand: ["#e8f4ff", "#d0e8f8", "#b8dcf0"],
+    grass: ["#dceaf4", "#c8dce8", "#b4cedc"],
+  };
+
+  function getTileColors() {
+    return isIceTheme ? ICE_COLORS : COLORS;
+  }
+
   function shade(hex, factor) {
     const n = parseInt(hex.slice(1), 16);
     const r = Math.min(255, ((n >> 16) & 255) * factor);
@@ -547,7 +743,7 @@ export function startLevel(config = {}) {
         ? 0.9 + swell * 0.12 * Math.sin(time * 4 + ix * 0.7 + iy * 0.5)
         : 1;
 
-    const palette = COLORS[kind] || COLORS.sand;
+    const palette = getTileColors()[kind] || getTileColors().sand;
     const top = shade(palette[0], waveAnim);
     const left = shade(palette[1], waveAnim * 0.88);
     const right = shade(palette[2], waveAnim * 0.82);
@@ -598,7 +794,80 @@ export function startLevel(config = {}) {
 
   function drawGrassStrip(ix, iy) {
     if (iy < GRID_H - 2) return;
-    drawBlockTopDown(ix, iy, 0, COLORS.grass[0], COLORS.grass[1], COLORS.grass[2]);
+    const grass = getTileColors().grass;
+    drawBlockTopDown(ix, iy, 0, grass[0], grass[1], grass[2]);
+  }
+
+  function drawSnowPile(ix, iy) {
+    if (iy < GRID_H - 2) return;
+
+    const base = isoToScreen(ix, iy, 0);
+    const s = isoScale;
+    const ctx = mainContext;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(160, 190, 210, 0.35)";
+    ctx.beginPath();
+    ctx.ellipse(base.x, base.y + 2 * s, 14 * s, 8 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#eef6fc";
+    ctx.beginPath();
+    ctx.ellipse(base.x - 3 * s, base.y - 2 * s, 9 * s, 7 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#d8eaf4";
+    ctx.beginPath();
+    ctx.ellipse(base.x + 4 * s, base.y, 8 * s, 6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRock(ix, iy, variant = 0) {
+    const kind = tileAt(ix, iy);
+    if (kind !== "sand" && kind !== "wet") return;
+
+    const elev = kind === "sand" ? 0.15 * Math.sin(ix * 1.3 + iy * 0.9) : 0.08;
+    const { x, y } = isoToScreen(ix, iy, elev);
+    const s = isoScale;
+    const ctx = mainContext;
+    const seed = variant * 17 + ix * 13 + iy * 7;
+
+    const stones = [
+      { ox: 0, oy: -5, rx: 11, ry: 9, light: "#a8a8a8", mid: "#7a7a7a", dark: "#525252" },
+      { ox: -7, oy: 2, rx: 8, ry: 7, light: "#989898", mid: "#6d6d6d", dark: "#454545" },
+      { ox: 6, oy: 1, rx: 7, ry: 6, light: "#b0b0b0", mid: "#828282", dark: "#585858" },
+    ];
+    const count = 2 + (seed % 2);
+
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(x, y + 3 * s, 15 * s, 9 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (let i = 0; i < count; i++) {
+      const st = stones[(seed + i) % stones.length];
+      const jx = ((seed + i * 11) % 5) - 2;
+      const jy = ((seed + i * 7) % 5) - 2;
+      const sx = x + (st.ox + jx) * s;
+      const sy = y + (st.oy + jy * 0.6) * s;
+
+      ctx.fillStyle = st.mid;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, st.rx * s, st.ry * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = st.light;
+      ctx.beginPath();
+      ctx.ellipse(sx - 2 * s, sy - 3 * s, st.rx * 0.55 * s, st.ry * 0.45 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = st.dark;
+      ctx.beginPath();
+      ctx.ellipse(sx + 3 * s, sy + 2 * s, st.rx * 0.45 * s, st.ry * 0.35 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   function drawCrabIcon(cx, cy, scale, facing = 1, legPhase = 0) {
@@ -627,7 +896,7 @@ export function startLevel(config = {}) {
       for (let leg = 0; leg < 3; leg++) {
         const lx = -4 + leg * 4;
         const ly = 4 + leg * 0.5;
-        const sway = Math.sin(time * 8 + legPhase + leg + (side > 0 ? 1 : 0)) * 3;
+        const sway = Math.sin(animTime() * 8 + legPhase + leg + (side > 0 ? 1 : 0)) * 3;
         ctx.beginPath();
         ctx.moveTo(lx, ly);
         ctx.lineTo(lx + side * (8 + sway), ly + 6);
@@ -674,7 +943,7 @@ export function startLevel(config = {}) {
     ctx.ellipse(8, -1, 5, 4.5, 0.2, 0, Math.PI * 2);
     ctx.fill();
 
-    const antSway = Math.sin(time * 6 + legPhase) * 2;
+    const antSway = Math.sin(animTime() * 6 + legPhase) * 2;
     ctx.strokeStyle = "#c44a35";
     ctx.lineWidth = 1.5;
     ctx.lineCap = "round";
@@ -690,7 +959,7 @@ export function startLevel(config = {}) {
     ctx.strokeStyle = "#b84028";
     for (let leg = 0; leg < 4; leg++) {
       const lx = -4 + leg * 3;
-      const sway = Math.sin(time * 10 + legPhase + leg) * 2;
+      const sway = Math.sin(animTime() * 10 + legPhase + leg) * 2;
       ctx.beginPath();
       ctx.moveTo(lx, 3);
       ctx.lineTo(lx - 2 + sway * 0.3, 8);
@@ -709,8 +978,49 @@ export function startLevel(config = {}) {
     ctx.restore();
   }
 
+  function drawFishIcon(cx, cy, scale, facing = 1, legPhase = 0) {
+    const ctx = mainContext;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(facing * scale, scale);
+
+    ctx.fillStyle = "#3a78b0";
+    ctx.beginPath();
+    ctx.moveTo(-12, 0);
+    ctx.lineTo(-18, -6);
+    ctx.lineTo(-18, 6);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#4a90c8";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 12, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#f0c040";
+    ctx.fillRect(-2, -3, 3, 6);
+
+    const fin = Math.sin(animTime() * 8 + legPhase) * 3;
+    ctx.fillStyle = "#5aa0d0";
+    ctx.beginPath();
+    ctx.moveTo(0, 3);
+    ctx.lineTo(-4, 8 + fin);
+    ctx.lineTo(4, 8 - fin);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.arc(8, -2, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   function drawCreatureIcon(cx, cy, scale, facing = 1, legPhase = 0) {
-    if (creatureType === "shrimp") {
+    if (creatureType === "fish") {
+      drawFishIcon(cx, cy, scale, facing, legPhase);
+    } else if (creatureType === "shrimp") {
       drawShrimpIcon(cx, cy, scale, facing, legPhase);
     } else {
       drawCrabIcon(cx, cy, scale, facing, legPhase);
@@ -722,7 +1032,7 @@ export function startLevel(config = {}) {
     if (!isExposedBeach(kind)) return;
 
     const s = isoScale;
-    const wiggle = Math.sin(time * 5 + phase) * 2 * s;
+    const wiggle = Math.sin(animTime() * 5 + phase) * 2 * s;
     const base = isoToScreen(ix, iy, kind === "sand" ? 0.15 : 0.08);
     drawCreatureIcon(base.x + wiggle, base.y - 2 * s, s, facing, phase);
   }
@@ -732,9 +1042,15 @@ export function startLevel(config = {}) {
     const h = mainCanvasSize.y;
     const ctx = mainContext;
     const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, "#5a9fd4");
-    grad.addColorStop(0.35, "#7eb8e0");
-    grad.addColorStop(1, "#9ecae8");
+    if (isIceTheme) {
+      grad.addColorStop(0, "#6a8aa8");
+      grad.addColorStop(0.35, "#a8c0d8");
+      grad.addColorStop(1, "#d0e4f0");
+    } else {
+      grad.addColorStop(0, "#5a9fd4");
+      grad.addColorStop(0.35, "#7eb8e0");
+      grad.addColorStop(1, "#9ecae8");
+    }
     ctx.save();
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
@@ -779,10 +1095,25 @@ export function startLevel(config = {}) {
       draw: drawPlayer,
     });
 
+    for (const [ix, iy, variant = 0] of rocks) {
+      entities.push({
+        ix,
+        iy,
+        depth: tileDrawDepth(ix, iy) + 0.015,
+        draw() {
+          drawRock(ix, iy, variant);
+        },
+      });
+    }
+
     entities.sort((a, b) => a.depth - b.depth);
     for (const ent of entities) ent.draw();
 
-    for (const [ix, iy] of PALMS) drawPalm(ix, iy);
+    if (isIceTheme) {
+      for (const [ix, iy] of PALMS) drawSnowPile(ix, iy);
+    } else {
+      for (const [ix, iy] of PALMS) drawPalm(ix, iy);
+    }
   }
 
   function hudSize(base) {
@@ -817,7 +1148,55 @@ export function startLevel(config = {}) {
       rgb(0.1, 0.25, 0.1),
       "left",
     );
-    drawCreatureIcon(leftX + textW + gap + iconW * 0.5, y, iconScale, 1, time * 5);
+    drawCreatureIcon(leftX + textW + gap + iconW * 0.5, y, iconScale, 1, animTime() * 5);
+  }
+
+  function drawFreezeTimer() {
+    if (!freezeCycle) return;
+
+    const w = mainCanvasSize.x;
+    const cycleLen = freezeCycle.activeSec + freezeCycle.frozenSec;
+    const inCycle = (timeReal - freezePhaseStart) % cycleLen;
+    const remaining = isFrozen
+      ? cycleLen - inCycle
+      : freezeCycle.activeSec - inCycle;
+    const label = isFrozen ? "Gel" : "Banquise";
+    const text = `${label} : ${Math.ceil(remaining)} s`;
+    const color = isFrozen ? rgb(0.75, 0.92, 1) : rgb(1, 1, 1);
+    const outline = isFrozen ? rgb(0.1, 0.25, 0.45) : rgb(0.1, 0.15, 0.2);
+
+    drawTextScreen(
+      text,
+      vec2(w * 0.5, hudSize(42)),
+      hudSize(18),
+      color,
+      0,
+      outline,
+      "center",
+    );
+  }
+
+  function drawFreezeOverlay() {
+    if (!isFrozen) return;
+
+    const w = mainCanvasSize.x;
+    const h = mainCanvasSize.y;
+    const ctx = mainContext;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(180, 220, 255, 0.28)";
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+
+    drawTextScreen(
+      "Gel !",
+      vec2(w * 0.5, h * 0.12),
+      hudSize(28),
+      rgb(0.85, 0.95, 1),
+      0,
+      rgb(0.1, 0.25, 0.45),
+      "center",
+    );
   }
 
   function drawHUD() {
@@ -839,6 +1218,7 @@ export function startLevel(config = {}) {
     }
 
     drawCrabCounterOnGrass();
+    drawFreezeTimer();
     drawTextScreen(
       phone ? "Toucher : direction" : "Flèches / toucher : haut bas gauche droite",
       vec2(w * 0.5, h - padBottom * 0.55),
@@ -907,13 +1287,16 @@ export function startLevel(config = {}) {
     setShowSplashScreen(false);
     setCameraScale(1);
     setCanvasPixelated(false);
-    setCanvasClearColor(rgb(0.53, 0.81, 1));
+    setCanvasClearColor(isIceTheme ? rgb(0.75, 0.88, 0.96) : rgb(0.53, 0.81, 1));
     waveAmplitude = 0.4 + Math.random() * 0.6;
     resetCrabSpawnBudget();
     initPrevTiles();
     caughtCrabs = 0;
     levelWon = false;
     levelWonAt = 0;
+    freezePhaseStart = timeReal;
+    wasFrozen = false;
+    isFrozen = false;
     respawnPlayerOnGreenZone();
     player.facing = 1;
     player.moving = false;
@@ -936,11 +1319,16 @@ export function startLevel(config = {}) {
       return;
     }
 
+    updateFreezeCycle();
     updateWave();
-    updateCrabs();
-    updatePlayer();
     checkPlayerInWater();
-    tryCatchCrab();
+
+    if (!isFrozen) {
+      updateCrabs();
+      updatePlayer();
+      checkRockPenalty();
+      tryCatchCrab();
+    }
   }
 
   function gameRenderPost() {
@@ -948,6 +1336,7 @@ export function startLevel(config = {}) {
     drawScene();
     drawHUD();
     drawWinBanner();
+    drawFreezeOverlay();
   }
 
   engineInit(gameInit, gameUpdate, () => {}, () => {}, gameRenderPost);
