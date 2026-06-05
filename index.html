@@ -1,33 +1,80 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Isometric Beach</title>
+  <title>La chasse aux crabes</title>
   <style>
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
-      background: #111;
       overflow: hidden;
       overscroll-behavior: none;
-      -webkit-touch-callout: none;
+      font-family: system-ui, sans-serif;
     }
-    #game {
-      position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      display: block;
-      touch-action: none;
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #0c375f 0%, #145a8c 45%, #1a6fa8 100%);
+      color: #fff;
+      text-align: center;
+    }
+
+    .title-screen {
+      padding: 2rem;
+      max-width: 32rem;
+    }
+
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(2rem, 8vw, 2.75rem);
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+
+    .author {
+      margin: 0 0 0.35rem;
+      font-size: clamp(1.1rem, 4vw, 1.35rem);
+      opacity: 0.95;
+    }
+
+    .year {
+      margin: 0 0 2.5rem;
+      font-size: clamp(1rem, 3.5vw, 1.2rem);
+      color: #d9ecff;
+    }
+
+    .play-btn {
+      display: inline-block;
+      padding: 0.9rem 2.2rem;
+      border: 3px solid rgba(255, 215, 80, 0.95);
+      border-radius: 999px;
+      background: rgba(25, 95, 55, 0.94);
+      color: #fff7c2;
+      font-size: 1.15rem;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    .play-btn:hover,
+    .play-btn:focus-visible {
+      transform: translateY(-2px);
+      background: rgba(35, 115, 65, 0.98);
+      outline: none;
     }
   </style>
 </head>
 <body>
-  <div id="game"></div>
-  <script src="./vendor/midi.min.js"></script>
-  <script type="module" src="./game.js"></script>
+  <main class="title-screen">
+    <h1>La chasse aux crabes</h1>
+    <p class="author">par Michel Wargnier</p>
+    <p class="year">2026</p>
+    <a class="play-btn" href="level1.html">Jouer</a>
+  </main>
 </body>
 </html>

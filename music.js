@@ -7,6 +7,8 @@ const SOUNDFONT_URL =
 
 let ready = false;
 let started = false;
+let winMusicStarted = false;
+let pendingWinMusic = false;
 let wavesStarted = false;
 let wavesAudio;
 let tingAudio;
@@ -71,6 +73,34 @@ function tryStartWaveAmbience() {
   });
 }
 
+function startWinMusicPlayback() {
+  const MIDI = getMIDI();
+  if (!MIDI || !ready || winMusicStarted) return false;
+
+  winMusicStarted = true;
+  started = true;
+  pendingWinMusic = false;
+
+  if (wavesAudio) {
+    wavesAudio.pause();
+  }
+
+  MIDI.Player.stop();
+  MIDI.Player.currentTime = 0;
+  for (let ch = 0; ch < 16; ch++) {
+    MIDI.setVolume(ch, 90);
+  }
+  MIDI.Player.start();
+  return true;
+}
+
+export function playWinMusic() {
+  if (winMusicStarted) return;
+  if (!startWinMusicPlayback()) {
+    pendingWinMusic = true;
+  }
+}
+
 export function initBackgroundMusic() {
   initWaveAmbience();
   initTingSound();
@@ -91,6 +121,9 @@ export function initBackgroundMusic() {
         () => {
           ready = true;
           setupLoop(MIDI);
+          if (pendingWinMusic) {
+            startWinMusicPlayback();
+          }
         },
         null,
         (err) => console.error("Failed to load background MIDI:", err),
@@ -101,14 +134,5 @@ export function initBackgroundMusic() {
 
 export function tryStartBackgroundMusic() {
   tryStartWaveAmbience();
-
-  const MIDI = getMIDI();
-  if (!MIDI || started || !ready) return false;
-
-  started = true;
-  for (let ch = 0; ch < 16; ch++) {
-    MIDI.setVolume(ch, 90);
-  }
-  MIDI.Player.start();
-  return true;
+  return wavesStarted;
 }
