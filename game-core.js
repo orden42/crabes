@@ -124,7 +124,7 @@ export function startLevel(config = {}) {
     nextLevelUrl = null,
     winText = "Niveau terminé !",
     continueText = "Continuer",
-    waveCycleSec = 7,
+    waveCycleSec = 10,
     crabsPerWaveMin = 4,
     crabsPerWaveMax = 5,
     levelLabel = "",
@@ -418,7 +418,7 @@ export function startLevel(config = {}) {
     return kind === "wet" || kind === "sand";
   }
 
-  /** Higher near the shoreline, lower toward the top of the beach. */
+  /** Higher near the shoreline, much lower toward the bottom of the beach. */
   function creatureSpawnChance(iy) {
     const beachTop = GRID_H - 3;
     const beachBottom = OCEAN_ROWS;
@@ -426,9 +426,10 @@ export function startLevel(config = {}) {
     if (span <= 0) return 0.14;
 
     const nearWater = Math.max(0, Math.min(1, (beachTop - iy) / span));
-    const minChance = 0.05;
-    const maxChance = 0.32;
-    return minChance + nearWater * (maxChance - minChance);
+    const t = Math.pow(nearWater, 1.8);
+    const minChance = 0.01;
+    const maxChance = 0.28;
+    return minChance + t * (maxChance - minChance);
   }
 
   function canPlayerWalk(ix, iy) {

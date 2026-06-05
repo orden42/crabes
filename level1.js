@@ -6,7 +6,7 @@ startLevel({
   winText: "Niveau 1 terminé !",
   continueText: "Passer au niveau 2",
   nextLevelUrl: "level2.html",
-  waveCycleSec: 7,
+  waveCycleSec: 10,
   crabsPerWaveMin: 4,
   crabsPerWaveMax: 5,
 });
